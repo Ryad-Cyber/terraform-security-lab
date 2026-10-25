@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terraform Security Lab</title>
+  <style>
+    body {
+      background: #0b1220;
+      color: #e2e8f0;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 70px 20px;
+    }
+    h1 { color: #38bdf8; font-size: 42px; }
+    .subtitle { color: #94a3b8; }
+    .card {
+      background: #172033;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 25px;
+      margin: 30px auto;
+      max-width: 650px;
+    }
+    .status { color: #4ade80; font-weight: bold; }
+    .badge {
+      display: inline-block;
+      background: #1e293b;
+      padding: 10px 15px;
+      margin: 6px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Terraform Security Lab</h1>
+  <p class="subtitle">Infrastructure as Code & Container Security</p>
+
+  <div class="card">
+    <h2>Infrastructure Status</h2>
+    <p class="status">● NGINX SERVER RUNNING</p>
+    <p>Provisioned with Terraform and Docker</p>
+  </div>
+
+  <div class="card">
+    <h2>Security Controls</h2>
+    <span class="badge">Non-root Container</span>
+    <span class="badge">No New Privileges</span>
+    <span class="badge">Linux Capabilities Dropped</span>
+    <span class="badge">128 MiB Memory Limit</span>
+    <span class="badge">Localhost-only Access</span>
+  </div>
+
+  <p class="subtitle">Terraform · Docker · Nginx · Security Hardening</p>
+
+</body>
+</html>

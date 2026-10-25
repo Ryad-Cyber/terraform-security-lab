@@ -1,0 +1,23 @@
+﻿# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Sensitive variables
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.DS_Store
+Thumbs.db
