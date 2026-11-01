@@ -1,453 +1,164 @@
-# 🔐 Terraform Security Lab
+# Terraform Security Lab
 
-### Secure Infrastructure as Code | Docker Hardening | Network Segmentation
+**Infrastructure as Code · Container Security · DevSecOps**
 
-A hands-on cybersecurity project demonstrating how to deploy, secure, and validate a containerized infrastructure using **Terraform and Docker**.
+Built and validated on Windows 11 with Docker Desktop, this lab provisions a small containerized infrastructure with Terraform. It combines a static Nginx frontend, an HTTP Echo backend, network segmentation, container hardening, and a reproducible DevSecOps verification flow.
 
-The infrastructure consists of a hardened Nginx frontend and an isolated HTTP backend, provisioned entirely through Infrastructure as Code (IaC).
+> **Scope:** Windows 11, Docker Desktop in Linux-container mode, and the Docker provider for Terraform. This project does not deploy resources to AWS or expose a public cloud service.
 
-> **Environment:** Windows 11 · Terraform · Docker Desktop · Linux Containers
-> **Cost:** 100% free — no AWS account or cloud subscription required.
+## Objectives
 
----
+- Define the infrastructure and its security controls as code.
+- Limit container privileges and host exposure.
+- Separate the frontend network from backend-only communication.
+- Validate Terraform configuration and inspect the deployed controls.
+- Assess the Terraform code and container images with dedicated security tools.
 
-## 🎯 Project Objectives
-
-* Automate infrastructure deployment using Terraform.
-* Apply container security hardening and least-privilege principles.
-* Run frontend and backend services as non-root users.
-* Restrict Linux capabilities and privilege escalation.
-* Implement network segmentation between application components.
-* Prevent direct host-port exposure of internal services.
-* Validate security controls through practical tests.
-
----
-
-## 🏗️ Infrastructure Architecture
+## Architecture
 
 ```text
-                    WINDOWS HOST
-                         |
-                  127.0.0.1:8080
-                         |
-                         v
-              +---------------------+
-              |   NGINX FRONTEND    |
-              |---------------------|
-              | UID: 101 (non-root) |
-              | Memory: 128 MiB     |
-              | Capabilities: NONE  |
-              | No New Privileges   |
-              +----------+----------+
-                         |
-                         |
-             INTERNAL DOCKER NETWORK
-             terraform-backend-internal
-                         |
-                         v
-              +---------------------+
-              |    HTTP BACKEND     |
-              |---------------------|
-              | UID: 65532         |
-              | Memory: 64 MiB      |
-              | Capabilities: NONE  |
-              | No Published Ports  |
-              +---------------------+
+Windows host / browser
+       │  http://127.0.0.1:8080
+       ▼
+terraform-secure-web  (Nginx, static dashboard)
+       ├── terraform-security-network
+       └── terraform-backend-internal  [internal = true]
+                         │
+                         ▼
+          terraform-secure-backend  (HTTP Echo :5678)
+          No published host port
 ```
 
-### Network Design
+[main.tf](main.tf) provisions the two Docker networks, the two images, and the two containers. The frontend joins both networks and publishes port 8080 **only on 127.0.0.1**. The backend joins only `terraform-backend-internal` and has no published port. The Nginx page is a static dashboard; connectivity to HTTP Echo is checked separately through the internal Docker network.
 
-The infrastructure uses two Docker networks:
+![Terraform deployment](screenshots/01_Terraform_Infrastructure_Deployed.png)
 
-| Network                      | Purpose                           | Configuration            |
-| ---------------------------- | --------------------------------- | ------------------------ |
-| `terraform-security-network` | Frontend network                  | Dedicated Docker network |
-| `terraform-backend-internal` | Frontend-to-backend communication | `internal = true`        |
+*Terraform provisions the local Docker resources.*
 
-**Frontend:**
+![Docker network configuration](screenshots/03_Network_Configuration.png)
 
-* Connected to both networks.
-* Accessible from the Windows host through `127.0.0.1:8080`.
-* Runs an unprivileged Nginx image.
+*The frontend network and the internal backend network are configured separately.*
 
-**Backend:**
+## Security controls
 
-* Connected exclusively to the internal network.
-* Has no published host ports.
-* Communicates with the frontend using Docker's internal DNS.
+| Control | Implementation in the lab | How to inspect it |
+| --- | --- | --- |
+| Non-root execution | Unprivileged Nginx image and HTTP Echo image defaults | `docker exec terraform-secure-web id`; `docker inspect terraform-secure-backend --format '{{.Config.User}}'` |
+| No privilege escalation | `security_opts = ["no-new-privileges:true"]` on both containers | `docker inspect` |
+| Reduced Linux capabilities | `capabilities { drop = ["ALL"] }` on both containers | `docker inspect` |
+| Resource limits | Frontend: 128 MiB; backend: 64 MiB | Terraform configuration and `docker inspect` |
+| Local frontend access | `127.0.0.1:8080` host binding | `docker port terraform-secure-web` |
+| Backend isolation | Internal Docker network; no published backend port | `docker network inspect`; `docker port terraform-secure-backend` |
+| Read-only page mount | `web/index.html` mounted read-only | Terraform configuration |
 
-This architecture reduces unnecessary service exposure. It does not imply complete isolation from the Docker host.
+The non-root identities come from the selected images rather than an explicit `user` setting in Terraform. These controls reduce exposure; they do not make the containers or the Docker host immune to compromise.
 
----
+![Container security controls](screenshots/02_Container_Security_Controls.png)
 
-## 🛡️ Security Controls
+*Inspection of the container runtime settings and local port binding.*
 
-| Security Control                | Implementation           | Verification                     |
-| ------------------------------- | ------------------------ | -------------------------------- |
-| Non-root frontend               | UID `101`                | `docker exec ... id`             |
-| Non-root backend                | UID `65532`              | `docker inspect ... Config.User` |
-| Privilege escalation protection | `no-new-privileges:true` | Docker inspection                |
-| Linux capabilities restriction  | Drop `ALL`               | Docker inspection                |
-| Frontend memory limit           | 128 MiB                  | Docker inspection                |
-| Backend memory limit            | 64 MiB                   | Terraform configuration          |
-| Restricted frontend exposure    | `127.0.0.1:8080`         | Docker port inspection           |
-| Internal backend network        | `internal = true`        | Docker network inspection        |
-| Backend port exposure           | No published ports       | `docker port`                    |
-| Read-only HTML mount            | `read_only = true`       | Terraform configuration          |
+![Backend network isolation](screenshots/05_Backend_Network_Isolation.png)
 
-### Security Principles Applied
+*The backend has no published host port; the frontend can reach it on the internal network.*
 
-**Least Privilege:** Services run without root privileges and with Linux capabilities removed.
+![Internal network security](screenshots/06_Internal_Network_Security.png)
 
-**Defense in Depth:** Multiple controls reduce the impact of potential compromise.
+*Inspection of the internal network and backend runtime identity.*
 
-**Network Segmentation:** Internal application communication uses a dedicated Docker network.
+## Security verification workflow
 
-**Reduced Attack Surface:** The backend is not exposed through a host port.
+The tools address different layers; one does not replace the others.
 
-**Infrastructure as Code:** Security controls are defined declaratively and can be reproduced.
+| Tool | Role |
+| --- | --- |
+| **Terraform** | Format and validate HCL, preview changes, provision and remove the lab. |
+| **TFLint** | Lint Terraform configuration for language and provider-related issues. This Docker lab does not require an AWS ruleset. |
+| **Checkov** | Static security analysis of Terraform resources and configuration. Findings require review in the context of a local lab. |
+| **Trivy** | Scan the Nginx and HTTP Echo container images for known vulnerabilities. Results depend on the image digest and vulnerability database at scan time. |
+| **GitHub Actions** | CI/CD environment for running these checks on repository changes and retaining machine-readable reports as workflow artifacts. |
 
----
+Run the checks from the repository root. Install TFLint, Checkov, and Trivy separately if you want to run their respective commands.
 
-## 🧰 Technologies Used
-
-| Technology          | Role                                                 |
-| ------------------- | ---------------------------------------------------- |
-| Terraform           | Infrastructure provisioning and lifecycle management |
-| Docker Desktop      | Container runtime                                    |
-| Nginx Unprivileged  | Hardened web frontend                                |
-| HashiCorp HTTP Echo | Lightweight backend service                          |
-| PowerShell          | Deployment and security validation                   |
-| Git / GitHub        | Version control and project documentation            |
-
----
-
-## 📂 Project Structure
-
-```text
-terraform-security-lab/
-├── main.tf
-├── .terraform.lock.hcl
-├── .gitignore
-├── README.md
-├── web/
-│   └── index.html
-├── screenshots/
-│   ├── 01_Terraform_Infrastructure_Deployed.png
-│   ├── 02_Container_Security_Controls.png
-│   ├── 03_Network_Configuration.png
-│   ├── 04_Secure_Web_Server.png
-│   ├── 05_Backend_Network_Isolation.png
-│   └── 06_Internal_Network_Security.png
-└── docs/
+```powershell
+terraform init
+terraform fmt -check
+terraform validate
+tflint --init
+tflint
+checkov -d . --framework terraform
+trivy image nginxinc/nginx-unprivileged:stable-alpine
+trivy image hashicorp/http-echo:1.0
 ```
 
-Terraform state files and provider binaries are excluded from version control.
+Export machine-readable reports:
 
----
+```powershell
+New-Item -ItemType Directory -Force reports | Out-Null
+tflint --format json > reports/tflint.json
+checkov -d . --framework terraform -o json > reports/checkov.json
+trivy image --format json --output reports/trivy-nginx.json nginxinc/nginx-unprivileged:stable-alpine
+trivy image --format json --output reports/trivy-backend.json hashicorp/http-echo:1.0
+```
 
-## 🚀 Deployment Guide
+The GitHub Actions verification flow follows the same order: check formatting and validity, run TFLint and Checkov on the code, then scan both container images with Trivy. Machine-readable reports can be retained as workflow artifacts for review. The commands above allow the same checks to be run locally.
+
+## Run the lab
 
 ### Prerequisites
 
-* Windows 11
-* Docker Desktop running Linux containers
-* Terraform CLI
-* PowerShell
-
-### 1. Clone the repository
+- Windows 11 with Docker Desktop running Linux containers.
+- Terraform CLI and PowerShell.
+- Docker daemon available through the Windows named pipe configured in `main.tf`.
 
 ```powershell
 git clone https://github.com/Ryad-Cyber/terraform-security-lab.git
 cd terraform-security-lab
-```
-
-### 2. Initialize Terraform
-
-```powershell
 terraform init
-```
-
-Downloads the required Terraform Docker provider.
-
-### 3. Validate the configuration
-
-```powershell
 terraform fmt -check
 terraform validate
-```
-
-### 4. Review the deployment plan
-
-```powershell
 terraform plan
-```
-
-### 5. Deploy the infrastructure
-
-```powershell
 terraform apply
 ```
 
-Confirm by typing `yes`.
+Review the plan before approving `terraform apply`. The frontend is available at **http://localhost:8080**.
 
-### 6. Verify running containers
+![Local Nginx dashboard](screenshots/04_Secure_Web_Server.png)
+
+*The static page served by the locally deployed Nginx container.*
+
+### Inspect the running infrastructure
 
 ```powershell
 docker ps
-```
-
-Expected containers:
-
-```text
-terraform-secure-web
-terraform-secure-backend
-```
-
-### 7. Access the frontend
-
-Open your browser:
-
-**http://localhost:8080**
-
-The customized **Terraform Security Lab** dashboard should appear.
-
----
-
-## 🧪 Security Validation
-
-The following tests were performed to verify the infrastructure security configuration.
-
-### Test 1 — Non-root Execution
-
-**Frontend:**
-
-```powershell
 docker exec terraform-secure-web id
-```
-
-Result:
-
-```text
-uid=101(nginx) gid=101(nginx) groups=101(nginx)
-```
-
-**Backend:**
-
-```powershell
-docker inspect terraform-secure-backend --format '{{.Config.User}}'
-```
-
-Result:
-
-```text
-65532
-```
-
-**Status:** PASS — Both services run as non-root users.
-
-### Test 2 — Privilege Escalation Protection
-
-```powershell
 docker inspect terraform-secure-web --format '{{json .HostConfig.SecurityOpt}}'
-```
-
-Result:
-
-```text
-["no-new-privileges:true"]
-```
-
-**Status:** PASS
-
-### Test 3 — Linux Capabilities Restriction
-
-```powershell
 docker inspect terraform-secure-web --format '{{json .HostConfig.CapDrop}}'
-```
-
-Result:
-
-```text
-["ALL"]
-```
-
-**Status:** PASS
-
-### Test 4 — Memory Restriction
-
-```powershell
-docker inspect terraform-secure-web --format '{{.HostConfig.Memory}}'
-```
-
-Result:
-
-```text
-134217728
-```
-
-This corresponds to **128 MiB**.
-
-**Status:** PASS
-
-### Test 5 — Internal Network Configuration
-
-```powershell
+docker inspect terraform-secure-backend --format '{{.Config.User}}'
 docker network inspect terraform-backend-internal --format '{{.Internal}}'
-```
-
-Result:
-
-```text
-true
-```
-
-**Status:** PASS
-
-### Test 6 — Backend Exposure
-
-```powershell
 docker port terraform-secure-backend
-```
-
-Result:
-
-```text
-No output
-```
-
-The backend has no published host ports.
-
-**Status:** PASS
-
-### Test 7 — Frontend-to-Backend Communication
-
-```powershell
 docker exec terraform-secure-web wget -qO- http://terraform-secure-backend:5678
-```
-
-Result:
-
-```text
-Terraform Security Lab - Internal Backend OK
-```
-
-**Status:** PASS
-
-### Test 8 — Frontend Availability
-
-```powershell
 curl.exe -I http://localhost:8080
 ```
 
-Result:
-
-```text
-HTTP/1.1 200 OK
-```
-
-**Status:** PASS
-
----
-
-## 📸 Screenshots & Evidence
-
-### 01 — Automated Infrastructure Deployment
-
-![Terraform Deployment](screenshots/01_Terraform_Infrastructure_Deployed.png)
-
-Terraform provisions the infrastructure and manages Docker resources.
-
-### 02 — Container Security Controls
-
-![Container Security Controls](screenshots/02_Container_Security_Controls.png)
-
-Verification of non-root execution, privilege restrictions, memory limits, and localhost-only port binding.
-
-### 03 — Docker Network Configuration
-
-![Network Configuration](screenshots/03_Network_Configuration.png)
-
-Verification of the dedicated Docker network and restricted frontend exposure.
-
-### 04 — Customized Security Dashboard
-
-![Secure Web Server](screenshots/04_Secure_Web_Server.png)
-
-Customized Nginx frontend presenting the infrastructure and its configured security controls.
-
-### 05 — Backend Network Isolation
-
-![Backend Network Isolation](screenshots/05_Backend_Network_Isolation.png)
-
-Demonstration of frontend-to-backend communication without publishing the backend port on the host.
-
-### 06 — Internal Network Security
-
-![Internal Network Security](screenshots/06_Internal_Network_Security.png)
-
-Verification of the internal Docker network and backend non-root execution.
-
----
-
-## ♻️ Infrastructure Lifecycle
-
-Terraform manages the infrastructure throughout its lifecycle.
-
-| Command              | Purpose                        |
-| -------------------- | ------------------------------ |
-| `terraform init`     | Initialize the project         |
-| `terraform validate` | Validate configuration         |
-| `terraform plan`     | Preview infrastructure changes |
-| `terraform apply`    | Deploy or update resources     |
-| `terraform destroy`  | Remove managed resources       |
-
-To remove the lab:
+The inspection commands check the active containers and networks. `docker port terraform-secure-backend` should show no published mapping. To remove only the resources managed by this Terraform configuration:
 
 ```powershell
 terraform destroy
 ```
 
-This removes the Terraform-managed infrastructure. It does not delete unrelated Docker containers.
+## Repository contents
 
----
+```text
+main.tf                  Terraform Docker infrastructure
+web/index.html           Static Nginx dashboard
+screenshots/             Six deployment and security-control captures
+.terraform.lock.hcl      Provider dependency lock file
+README.md                Project documentation
+```
 
-## 📚 Key Learnings
+Terraform state and provider binaries are excluded from version control. This is a **local learning lab**, not a production deployment; production use would also require a review of secrets, image pinning, monitoring, patching, and deployment controls.
 
-Through this project, I gained practical experience in:
+## Author
 
-* Provisioning Docker infrastructure using Terraform.
-* Understanding declarative infrastructure management.
-* Applying least-privilege principles to containers.
-* Configuring non-root container execution.
-* Restricting Linux capabilities and privilege escalation.
-* Implementing frontend/backend network segmentation.
-* Limiting service exposure to the host.
-* Validating security controls using Docker CLI commands.
-* Documenting infrastructure security with reproducible evidence.
-
----
-
-## ⚠️ Scope & Limitations
-
-This is a **local security lab**, not a production deployment.
-
-* No AWS infrastructure was deployed.
-* No public internet-facing service was configured.
-* Docker network segmentation does not guarantee complete isolation.
-* Container hardening reduces risk but does not eliminate vulnerabilities.
-* Additional production controls would include image scanning, secrets management, centralized logging, monitoring, and automated security testing.
-
----
-
-## 👤 Author
-
-**Ryad Boujenan**
-
-Cybersecurity Engineering Student — EMSI Casablanca
-
-Focus: **Cloud Security · SOC / Blue Team · Infrastructure Security**
-
-**Portfolio:** https://ryad-cyber.github.io/
-
-**GitHub:** https://github.com/Ryad-Cyber
+**Ryad Boujenan** · Cybersecurity engineering student, EMSI Casablanca  
+[Portfolio](https://ryad-cyber.github.io/) · [GitHub](https://github.com/Ryad-Cyber)
