@@ -4,8 +4,6 @@
 
 A hands-on cybersecurity project built on **Windows 11 with Docker Desktop**. Terraform provisions a local, containerized infrastructure with a static Nginx frontend and an isolated HTTP Echo backend. The lab combines least-privilege controls, network segmentation, runtime verification, and a security-check workflow using TFLint, Checkov, Trivy, and GitHub Actions.
 
-> **Scope:** Local Terraform/Docker lab. No AWS resources, cloud subscription, or public internet-facing service are required.
-
 ---
 
 ## 🎯 Project Objectives
